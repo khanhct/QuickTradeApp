@@ -64,6 +64,35 @@ def modify_sl(ticket: int, new_sl: float) -> TradeResult:
     )
 
 
+def modify_tp(ticket: int, new_tp: float) -> TradeResult:
+    """Modify take profit of an open position."""
+    pos = mt5.positions_get(ticket=ticket)
+    if not pos:
+        return TradeResult(success=False, comment=f"Position {ticket} not found")
+
+    pos = pos[0]
+    request = {
+        "action": mt5.TRADE_ACTION_SLTP,
+        "position": ticket,
+        "symbol": pos.symbol,
+        "sl": pos.sl,
+        "tp": new_tp,
+    }
+    result = mt5.order_send(request)
+    if result is None:
+        return TradeResult(success=False, comment=str(mt5.last_error()))
+
+    success = result.retcode == mt5.TRADE_RETCODE_DONE
+    if not success:
+        logger.warning(f"modify_tp {ticket} failed: {result.retcode} {result.comment}")
+    return TradeResult(
+        success=success,
+        ticket=ticket,
+        comment=result.comment,
+        retcode=result.retcode,
+    )
+
+
 def close_position(ticket: int) -> TradeResult:
     """Close an open position by placing an opposite market order."""
     pos = mt5.positions_get(ticket=ticket)

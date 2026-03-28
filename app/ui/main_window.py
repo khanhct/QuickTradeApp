@@ -74,6 +74,10 @@ class MainWindow(QMainWindow):
         # Set initial symbol
         self._positions_panel.set_symbol(self._order_panel._symbol_combo.currentText())
 
+        # PositionsPanel reads SL/TP values from OrderPanel
+        self._positions_panel._get_sl_value = self._order_panel.get_sl_value
+        self._positions_panel._get_tp_value = self._order_panel.get_tp_value
+
         # Worker errors
         self._worker.error_occurred.connect(self._on_worker_error)
 

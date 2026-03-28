@@ -21,6 +21,8 @@ class PositionsPanel(QWidget):
         self._worker = worker
         self._positions: list[Position] = []
         self._current_symbol = ""
+        self._get_sl_value = None  # callback set by MainWindow
+        self._get_tp_value = None  # callback set by MainWindow
         self._setup_ui()
 
     def _setup_ui(self):
@@ -33,6 +35,24 @@ class PositionsPanel(QWidget):
         # Action bar
         action_layout = QHBoxLayout()
         action_layout.addStretch()
+
+        # Set SL from input
+        self._set_sl_btn = QPushButton("Set SL")
+        self._set_sl_btn.setStyleSheet(
+            "QPushButton { background-color: #f44336; color: white; font-weight: bold; padding: 8px 16px; }"
+            "QPushButton:hover { background-color: #d32f2f; }"
+        )
+        self._set_sl_btn.clicked.connect(self._on_set_sl)
+        action_layout.addWidget(self._set_sl_btn)
+
+        # Set TP from input
+        self._set_tp_btn = QPushButton("Set Target")
+        self._set_tp_btn.setStyleSheet(
+            "QPushButton { background-color: #9C27B0; color: white; font-weight: bold; padding: 8px 16px; }"
+            "QPushButton:hover { background-color: #7B1FA2; }"
+        )
+        self._set_tp_btn.clicked.connect(self._on_set_tp)
+        action_layout.addWidget(self._set_tp_btn)
 
         # Set SL to Entry button
         self._sl_entry_btn = QPushButton("Set SL → Entry")
@@ -120,6 +140,44 @@ class PositionsPanel(QWidget):
                 Qt.GlobalColor.darkGreen if pos.profit >= 0 else Qt.GlobalColor.red
             )
             self._table.setItem(row, 7, profit_item)
+
+    def _on_set_sl(self):
+        """Fire-and-forget: set SL for all filtered positions from SL input."""
+        if not self._get_sl_value:
+            return
+        sl = self._get_sl_value()
+        if sl is None:
+            self._status_label.setText("Stop Loss field is empty")
+            return
+
+        filtered = self._get_filtered_positions()
+        if not filtered:
+            self._status_label.setText("No positions to modify")
+            return
+
+        self._status_label.setText(f"Setting SL={sl} for {len(filtered)} positions...")
+        for pos in filtered:
+            self._worker.fire_and_forget(positions_mod.modify_sl, pos.ticket, sl)
+        QTimer.singleShot(1000, self.request_sync.emit)
+
+    def _on_set_tp(self):
+        """Fire-and-forget: set TP for all filtered positions from TP input."""
+        if not self._get_tp_value:
+            return
+        tp = self._get_tp_value()
+        if tp is None:
+            self._status_label.setText("Take Profit field is empty")
+            return
+
+        filtered = self._get_filtered_positions()
+        if not filtered:
+            self._status_label.setText("No positions to modify")
+            return
+
+        self._status_label.setText(f"Setting TP={tp} for {len(filtered)} positions...")
+        for pos in filtered:
+            self._worker.fire_and_forget(positions_mod.modify_tp, pos.ticket, tp)
+        QTimer.singleShot(1000, self.request_sync.emit)
 
     def _on_set_sl_to_entry(self):
         """Fire-and-forget: set SL to entry price for all filtered positions."""

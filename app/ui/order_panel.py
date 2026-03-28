@@ -172,17 +172,13 @@ class OrderPanel(QWidget):
                 mid = round((tick.ask + tick.bid) / 2, 5)
                 self._price_input.setText(str(mid))
 
-            # Auto-fill SL from entry price + default offset (if not focused)
-            if not self._sl_input.hasFocus():
-                price = float(self._price_input.text()) if self._price_input.text() else mid
-                # Default to BUY SL (price - offset); user can edit before placing
-                sl_value = calculate_sl("buy", price, config.default_sl_offset)
-                self._sl_input.setText(str(sl_value))
+            # SL stays empty by default — auto-calculated on order with correct direction
         except Exception:
             pass
 
     def _on_symbol_changed(self, symbol):
         self._price_input.clear()
+        self._sl_input.clear()
         self._fetch_price()
 
     def _on_place_order(self, order_type: str, is_market: bool):
@@ -193,7 +189,7 @@ class OrderPanel(QWidget):
 
             lot = float(self._lot_input.text())
             sl_text = self._sl_input.text().strip()
-            sl = float(sl_text) if sl_text else None
+            sl = float(sl_text) if sl_text else None  # None = auto calc with correct direction
             tp_text = self._tp_input.text().strip()
             tp = float(tp_text) if tp_text else None
 
@@ -220,8 +216,7 @@ class OrderPanel(QWidget):
                     QMessageBox.warning(self, "Error", "Entry price is required for limit orders")
                     return
                 price = float(price_text)
-                if sl is None:
-                    sl = calculate_sl(order_type, price, config.default_sl_offset)
+                sl = sl if sl is not None else calculate_sl(order_type, price, config.default_sl_offset)
 
                 future = self._worker.submit(
                     trading.send_limit_order, symbol, order_type, lot, price, sl, tp
@@ -254,3 +249,13 @@ class OrderPanel(QWidget):
             ]:
                 btn.setEnabled(True)
                 btn.setText(text)
+
+    def get_sl_value(self):
+        """Return SL value from input, or None if empty."""
+        text = self._sl_input.text().strip()
+        return float(text) if text else None
+
+    def get_tp_value(self):
+        """Return TP value from input, or None if empty."""
+        text = self._tp_input.text().strip()
+        return float(text) if text else None

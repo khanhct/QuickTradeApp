@@ -104,7 +104,7 @@ wheels = [
 [[package]]
 name = "tradingapp"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "metatrader5", marker = "sys_platform == 'win32'" },
     { name = "pyqt6" },
