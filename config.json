@@ -1,0 +1,7 @@
+{
+    "sync_interval_ms": 30000,
+    "default_sl_offset": 10.0,
+    "default_lot_size": 0.01,
+    "default_symbol": "XAUUSD",
+    "symbols": ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY"]
+}

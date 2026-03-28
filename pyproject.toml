@@ -1,0 +1,12 @@
+[project]
+name = "tradingapp"
+version = "0.1.0"
+description = "MT5 Quick Trading App - Python GUI for MetaTrader 5"
+requires-python = ">=3.11"
+dependencies = [
+    "PyQt6>=6.6",
+    "MetaTrader5>=5.0.45; sys_platform == 'win32'",
+]
+
+[project.scripts]
+tradingapp = "run:main"
