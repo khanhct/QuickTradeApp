@@ -14,7 +14,8 @@ def initialize() -> bool:
     info = mt5.terminal_info()
     if info:
         logger.info(f"MT5 connected: {info.name} build {info.build}")
-        logger.info(f"MT5 terminal_info: connected={info.connected}, trade_allowed={info.trade_allowed}")
+        logger.info(f"MT5 terminal_info: connected={info.connected}, "
+                     f"trade_allowed={getattr(info, 'trade_allowed', 'N/A')}")
     logger.info("MT5 initialize() returning True")
     return True
 

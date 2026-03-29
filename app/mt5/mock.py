@@ -9,6 +9,7 @@ from dataclasses import dataclass
 TRADE_ACTION_DEAL = 1
 TRADE_ACTION_PENDING = 5
 TRADE_ACTION_SLTP = 6
+TRADE_ACTION_REMOVE = 8
 
 ORDER_TYPE_BUY = 0
 ORDER_TYPE_SELL = 1
@@ -27,6 +28,7 @@ class _TerminalInfo:
     name: str = "MetaTrader 5 (Mock)"
     build: int = 9999
     connected: bool = True
+    trade_allowed: bool = True
 
 
 @dataclass
@@ -52,6 +54,20 @@ class _Position:
 
 
 @dataclass
+class _Order:
+    ticket: int = 0
+    symbol: str = ""
+    type: int = 0
+    volume_current: float = 0.0
+    price_open: float = 0.0
+    sl: float = 0.0
+    tp: float = 0.0
+    time_setup: int = 0
+    magic: int = 0
+    comment: str = ""
+
+
+@dataclass
 class _OrderResult:
     retcode: int = TRADE_RETCODE_DONE
     order: int = 0
@@ -61,6 +77,7 @@ class _OrderResult:
 # Internal state
 _initialized = False
 _positions: list[_Position] = []
+_orders: list[_Order] = []
 _next_ticket = 100001
 
 
@@ -147,6 +164,20 @@ def positions_get(symbol: str = None, ticket: int = None):
     return tuple(_positions)
 
 
+def orders_get(symbol: str = None, ticket: int = None):
+    """Get pending orders."""
+    if not _initialized:
+        return None
+
+    if ticket is not None:
+        result = [o for o in _orders if o.ticket == ticket]
+        return result if result else None
+    if symbol is not None:
+        result = [o for o in _orders if o.symbol == symbol]
+        return result if result else ()
+    return tuple(_orders)
+
+
 def order_send(request: dict):
     global _next_ticket, _positions
 
@@ -187,18 +218,22 @@ def order_send(request: dict):
             return _OrderResult(retcode=TRADE_RETCODE_DONE, order=ticket, comment="Market order filled")
 
     if action == TRADE_ACTION_PENDING:
-        _positions.append(_Position(
+        _orders.append(_Order(
             ticket=ticket,
             symbol=request["symbol"],
             type=request["type"],
-            volume=request["volume"],
+            volume_current=request["volume"],
             price_open=request["price"],
             sl=request.get("sl", 0.0),
             tp=request.get("tp", 0.0),
-            profit=0.0,
-            time=int(time.time()),
+            time_setup=int(time.time()),
             comment="mock pending",
         ))
         return _OrderResult(retcode=TRADE_RETCODE_DONE, order=ticket, comment="Pending order placed")
+
+    if action == TRADE_ACTION_REMOVE:
+        order_ticket = request.get("order")
+        _orders[:] = [o for o in _orders if o.ticket != order_ticket]
+        return _OrderResult(retcode=TRADE_RETCODE_DONE, order=order_ticket, comment="Order cancelled")
 
     return _OrderResult(retcode=TRADE_RETCODE_DONE, order=ticket)
