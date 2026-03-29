@@ -1,24 +1,31 @@
 import logging
 from typing import Optional
 from app.mt5 import mt5_module as mt5
-from app.models.trade import Position, TradeResult
+from app.models.trade import Position, PendingOrder, TradeResult
 
 logger = logging.getLogger(__name__)
 
 
 def get_positions(symbol: Optional[str] = None) -> list[Position]:
     """Get all open positions, optionally filtered by symbol."""
+    logger.info(f"get_positions called with symbol={symbol!r}")
     if symbol:
         raw = mt5.positions_get(symbol=symbol)
     else:
         raw = mt5.positions_get()
 
+    logger.info(f"mt5.positions_get() returned: type={type(raw).__name__}, "
+                f"value={raw if raw is None else f'{len(raw)} items'}")
+
     if raw is None:
-        logger.warning(f"Failed to get positions: {mt5.last_error()}")
+        error = mt5.last_error()
+        logger.warning(f"Failed to get positions: {error}")
         return []
 
     positions = []
     for p in raw:
+        logger.info(f"  Raw position: ticket={p.ticket} symbol={p.symbol} type={p.type} "
+                     f"volume={p.volume} price_open={p.price_open} profit={p.profit}")
         positions.append(Position(
             ticket=p.ticket,
             symbol=p.symbol,
@@ -32,7 +39,67 @@ def get_positions(symbol: Optional[str] = None) -> list[Position]:
             magic=p.magic,
             comment=p.comment,
         ))
+
+    logger.info(f"get_positions returning {len(positions)} positions")
     return positions
+
+
+def get_orders(symbol: Optional[str] = None) -> list[PendingOrder]:
+    """Get all pending orders, optionally filtered by symbol."""
+    logger.info(f"get_orders called with symbol={symbol!r}")
+    if symbol:
+        raw = mt5.orders_get(symbol=symbol)
+    else:
+        raw = mt5.orders_get()
+
+    logger.info(f"mt5.orders_get() returned: type={type(raw).__name__}, "
+                f"value={raw if raw is None else f'{len(raw)} items'}")
+
+    if raw is None:
+        error = mt5.last_error()
+        logger.warning(f"Failed to get orders: {error}")
+        return []
+
+    orders = []
+    for o in raw:
+        logger.info(f"  Raw order: ticket={o.ticket} symbol={o.symbol} type={o.type} "
+                     f"volume={o.volume_current} price={o.price_open}")
+        orders.append(PendingOrder(
+            ticket=o.ticket,
+            symbol=o.symbol,
+            type=o.type,
+            volume=o.volume_current,
+            price_open=o.price_open,
+            sl=o.sl,
+            tp=o.tp,
+            time=o.time_setup,
+            magic=o.magic,
+            comment=o.comment,
+        ))
+
+    logger.info(f"get_orders returning {len(orders)} pending orders")
+    return orders
+
+
+def cancel_order(ticket: int) -> TradeResult:
+    """Cancel a pending order."""
+    request = {
+        "action": mt5.TRADE_ACTION_REMOVE,
+        "order": ticket,
+    }
+    result = mt5.order_send(request)
+    if result is None:
+        return TradeResult(success=False, comment=str(mt5.last_error()))
+
+    success = result.retcode == mt5.TRADE_RETCODE_DONE
+    if not success:
+        logger.warning(f"cancel_order {ticket} failed: {result.retcode} {result.comment}")
+    return TradeResult(
+        success=success,
+        ticket=ticket,
+        comment=result.comment,
+        retcode=result.retcode,
+    )
 
 
 def modify_sl(ticket: int, new_sl: float) -> TradeResult:

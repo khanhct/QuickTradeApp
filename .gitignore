@@ -16,3 +16,5 @@ dist/
 
 # IDE / Claude
 .claude/
+
+.venv

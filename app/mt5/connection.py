@@ -5,6 +5,7 @@ logger = logging.getLogger(__name__)
 
 def initialize() -> bool:
     """Initialize MT5 connection via local process. Must be called from the worker thread."""
+    logger.info("MT5 initialize() called...")
     if not mt5.initialize():
         error = mt5.last_error()
         logger.error(f"MT5 initialize failed: {error}")
@@ -13,6 +14,8 @@ def initialize() -> bool:
     info = mt5.terminal_info()
     if info:
         logger.info(f"MT5 connected: {info.name} build {info.build}")
+        logger.info(f"MT5 terminal_info: connected={info.connected}, trade_allowed={info.trade_allowed}")
+    logger.info("MT5 initialize() returning True")
     return True
 
 

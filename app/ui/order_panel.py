@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import Future
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QComboBox, QPushButton,
@@ -34,6 +35,8 @@ class OrderPanel(QWidget):
     def __init__(self, worker: MT5Worker, parent=None):
         super().__init__(parent)
         self._worker = worker
+        self._tick_future: Future | None = None
+        self._order_future: Future | None = None
         self._setup_ui()
         self._start_price_sync()
 
@@ -93,7 +96,14 @@ class OrderPanel(QWidget):
         self._price_input.setPlaceholderText("Auto-synced from MT5")
         center_layout.addWidget(self._price_input, row, 1)
 
-        # SL (auto-filled from entry price - default offset)
+        # SL Offset
+        row += 1
+        center_layout.addWidget(QLabel("SL Offset:"), row, 0)
+        self._sl_offset_input = QLineEdit(str(config.default_sl_offset))
+        self._sl_offset_input.setToolTip("SL distance from entry price (auto-calc SL = entry ± offset)")
+        center_layout.addWidget(self._sl_offset_input, row, 1)
+
+        # SL (auto-filled from entry price - offset)
         row += 1
         center_layout.addWidget(QLabel("Stop Loss:"), row, 0)
         self._sl_input = QLineEdit()
@@ -143,23 +153,35 @@ class OrderPanel(QWidget):
     def _start_price_sync(self):
         """Sync current price from MT5 every second."""
         self._price_timer = QTimer(self)
-        self._price_timer.timeout.connect(self._fetch_price)
+        self._price_timer.timeout.connect(self._on_price_tick)
         self._price_timer.start(1000)
+        self._fetch_price()
+
+    def _on_price_tick(self):
+        """Timer callback: check previous result, then fetch new price."""
+        self._check_tick_result()
         self._fetch_price()
 
     def _fetch_price(self):
         symbol = self._symbol_combo.currentText().strip()
         if not symbol:
             return
-        future = self._worker.submit(self._get_tick, symbol)
-        future.add_done_callback(self._on_tick_received)
+        # Skip if previous tick fetch still pending
+        if self._tick_future is not None and not self._tick_future.done():
+            return
+        self._tick_future = self._worker.submit(self._get_tick, symbol)
 
     @staticmethod
     def _get_tick(symbol):
         from app.mt5 import mt5_module as mt5
         return mt5.symbol_info_tick(symbol)
 
-    def _on_tick_received(self, future):
+    def _check_tick_result(self):
+        """Called by price timer — check if tick future is done."""
+        if self._tick_future is None or not self._tick_future.done():
+            return
+        future = self._tick_future
+        self._tick_future = None
         try:
             tick = future.result()
             if tick is None:
@@ -171,8 +193,6 @@ class OrderPanel(QWidget):
             if not self._price_input.hasFocus():
                 mid = round((tick.ask + tick.bid) / 2, 5)
                 self._price_input.setText(str(mid))
-
-            # SL stays empty by default — auto-calculated on order with correct direction
         except Exception:
             pass
 
@@ -182,6 +202,11 @@ class OrderPanel(QWidget):
         self._fetch_price()
 
     def _on_place_order(self, order_type: str, is_market: bool):
+        # Guard: if previous order still pending, skip
+        if self._order_future is not None and not self._order_future.done():
+            logger.warning("Order already in progress, ignoring click")
+            return
+
         try:
             symbol = self._symbol_combo.currentText().strip()
             if not symbol:
@@ -193,6 +218,10 @@ class OrderPanel(QWidget):
             tp_text = self._tp_input.text().strip()
             tp = float(tp_text) if tp_text else None
 
+            sl_offset = self.get_sl_offset()
+            logger.info(f"Placing {order_type} {'market' if is_market else 'limit'} order: "
+                        f"symbol={symbol} lot={lot} sl={sl} tp={tp} sl_offset={sl_offset}")
+
             if is_market:
                 def _execute_market():
                     from app.mt5 import mt5_module as mt5
@@ -201,36 +230,62 @@ class OrderPanel(QWidget):
                         from app.models.trade import TradeResult
                         return TradeResult(success=False, comment=f"Cannot get tick for {symbol}")
                     price = tick.ask if order_type == "buy" else tick.bid
-                    final_sl = sl if sl is not None else calculate_sl(order_type, price, config.default_sl_offset)
+                    final_sl = sl if sl is not None else calculate_sl(order_type, price, sl_offset)
                     return trading.send_market_order(symbol, order_type, lot, final_sl, tp)
 
-                future = self._worker.submit(_execute_market)
-                future.add_done_callback(self._on_order_result)
+                self._order_future = self._worker.submit(_execute_market)
 
                 btn = self._buy_market_btn if order_type == "buy" else self._sell_market_btn
                 btn.setEnabled(False)
                 btn.setText("Sending...")
+                # Start polling for order result
+                self._start_order_poll()
             else:
                 price_text = self._price_input.text().strip()
                 if not price_text:
                     QMessageBox.warning(self, "Error", "Entry price is required for limit orders")
                     return
                 price = float(price_text)
-                sl = sl if sl is not None else calculate_sl(order_type, price, config.default_sl_offset)
+                sl = sl if sl is not None else calculate_sl(order_type, price, sl_offset)
 
-                future = self._worker.submit(
+                self._order_future = self._worker.submit(
                     trading.send_limit_order, symbol, order_type, lot, price, sl, tp
                 )
-                future.add_done_callback(self._on_order_result)
 
                 btn = self._buy_limit_btn if order_type == "buy" else self._sell_limit_btn
                 btn.setEnabled(False)
                 btn.setText("Sending...")
+                # Start polling for order result
+                self._start_order_poll()
 
         except ValueError as e:
             QMessageBox.warning(self, "Input Error", f"Invalid input: {e}")
 
-    def _on_order_result(self, future):
+    def _start_order_poll(self):
+        """Poll order future from main thread."""
+        self._order_poll_count = 0
+        if not hasattr(self, '_order_poll'):
+            self._order_poll = QTimer(self)
+            self._order_poll.timeout.connect(self._check_order_result)
+        self._order_poll.start(100)
+
+    def _check_order_result(self):
+        """Poll order future on main thread."""
+        self._order_poll_count += 1
+        # Timeout after 30s (300 * 100ms)
+        if self._order_poll_count > 300:
+            logger.error("Order poll timeout after 30s")
+            self._order_poll.stop()
+            self.order_placed.emit("Order timeout: no response after 30s")
+            self._reset_buttons()
+            self._order_future = None
+            return
+        if self._order_future is None or not self._order_future.done():
+            return
+        self._order_poll.stop()
+        future = self._order_future
+        self._order_future = None
+
         try:
             result = future.result()
             if result.success:
@@ -241,14 +296,25 @@ class OrderPanel(QWidget):
         except Exception as e:
             self.order_placed.emit(f"Order error: {e}")
         finally:
-            for btn, text in [
-                (self._buy_market_btn, "BUY MARKET"),
-                (self._sell_market_btn, "SELL MARKET"),
-                (self._buy_limit_btn, "BUY LIMIT"),
-                (self._sell_limit_btn, "SELL LIMIT"),
-            ]:
-                btn.setEnabled(True)
-                btn.setText(text)
+            self._reset_buttons()
+
+    def _reset_buttons(self):
+        for btn, text in [
+            (self._buy_market_btn, "BUY MARKET"),
+            (self._sell_market_btn, "SELL MARKET"),
+            (self._buy_limit_btn, "BUY LIMIT"),
+            (self._sell_limit_btn, "SELL LIMIT"),
+        ]:
+            btn.setEnabled(True)
+            btn.setText(text)
+
+    def get_sl_offset(self) -> float:
+        """Return SL offset from input, fallback to config default."""
+        text = self._sl_offset_input.text().strip()
+        try:
+            return float(text)
+        except (ValueError, TypeError):
+            return config.default_sl_offset
 
     def get_sl_value(self):
         """Return SL value from input, or None if empty."""

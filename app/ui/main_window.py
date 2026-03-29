@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import Future
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QSplitter, QMessageBox,
 )
@@ -59,6 +60,7 @@ class MainWindow(QMainWindow):
     def _connect_signals(self):
         # Sync updates
         self._sync_manager.positions_updated.connect(self._on_positions_updated)
+        self._sync_manager.orders_updated.connect(self._on_orders_updated)
         self._sync_manager.sync_error.connect(self._on_sync_error)
 
         # Position panel requests sync after bulk actions
@@ -83,18 +85,24 @@ class MainWindow(QMainWindow):
 
     def _init_mt5(self):
         """Initialize MT5 connection on the worker thread."""
-        future = self._worker.submit(connection.initialize)
-        future.add_done_callback(self._on_mt5_init_complete)
+        self._init_future = self._worker.submit(connection.initialize)
+        # Poll from main thread instead of using Future callback
+        self._init_poll = QTimer(self)
+        self._init_poll.timeout.connect(self._check_init_result)
+        self._init_poll.start(100)
 
-    def _on_mt5_init_complete(self, future):
-        """Callback from worker thread — schedule UI work on main thread."""
+    def _check_init_result(self):
+        """Poll init future on main thread."""
+        if not self._init_future.done():
+            return
+        self._init_poll.stop()
         try:
-            success = future.result()
+            success = self._init_future.result()
+            logger.info(f"MT5 init future resolved: success={success}")
         except Exception as e:
             logger.error(f"MT5 init error: {e}")
             success = False
-        # QTimer.singleShot with 0ms runs on the main event loop thread
-        QTimer.singleShot(0, lambda: self._handle_mt5_init(success))
+        self._handle_mt5_init(success)
 
     def _handle_mt5_init(self, success: bool):
         self._status_bar.set_connected(success)
@@ -105,10 +113,23 @@ class MainWindow(QMainWindow):
             logger.error("MT5 initialization failed")
 
     def _on_positions_updated(self, positions):
+        logger.info(f"Positions updated: {len(positions)} positions received")
+        for p in positions:
+            logger.info(f"  Position: ticket={p.ticket} symbol={p.symbol} type={p.type_str} "
+                        f"volume={p.volume} open={p.price_open} sl={p.sl} tp={p.tp} profit={p.profit}")
         self._positions_panel.update_positions(positions)
-        self._status_bar.set_position_count(len(positions))
         self._status_bar.set_sync_time()
         self._status_bar.set_connected(True)
+
+    def _on_orders_updated(self, orders):
+        logger.info(f"Orders updated: {len(orders)} pending orders received")
+        for o in orders:
+            logger.info(f"  Order: ticket={o.ticket} symbol={o.symbol} type={o.type_str} "
+                        f"volume={o.volume} price={o.price_open} sl={o.sl} tp={o.tp}")
+        self._positions_panel.update_orders(orders)
+        self._status_bar.set_position_count(
+            len(self._positions_panel._positions) + len(self._positions_panel._orders)
+        )
 
     def _on_sync_error(self, error_msg):
         logger.error(f"Sync error: {error_msg}")
