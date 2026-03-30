@@ -60,6 +60,8 @@ class OrderPanel(QWidget):
         self._sell_market_btn.clicked.connect(lambda: self._on_place_order("sell", is_market=True))
         sell_layout.addWidget(self._sell_market_btn)
 
+        sell_layout.addSpacing(12)
+
         self._sell_limit_btn = QPushButton("SELL LIMIT")
         self._sell_limit_btn.setMinimumSize(160, 45)
         self._sell_limit_btn.setStyleSheet(SELL_LIMIT_STYLE)
@@ -89,11 +91,18 @@ class OrderPanel(QWidget):
         self._lot_input = QLineEdit(str(config.default_lot_size))
         center_layout.addWidget(self._lot_input, row, 1)
 
-        # Entry price (auto-synced from MT5)
+        # Current price (auto-updated label)
+        row += 1
+        center_layout.addWidget(QLabel("Current Price:"), row, 0)
+        self._current_price_label = QLabel("--")
+        self._current_price_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        center_layout.addWidget(self._current_price_label, row, 1)
+
+        # Entry price (manual input)
         row += 1
         center_layout.addWidget(QLabel("Entry Price:"), row, 0)
         self._price_input = QLineEdit()
-        self._price_input.setPlaceholderText("Auto-synced from MT5")
+        self._price_input.setPlaceholderText("Manual entry for limit orders")
         center_layout.addWidget(self._price_input, row, 1)
 
         # SL Offset
@@ -141,6 +150,8 @@ class OrderPanel(QWidget):
         self._buy_market_btn.clicked.connect(lambda: self._on_place_order("buy", is_market=True))
         buy_layout.addWidget(self._buy_market_btn)
 
+        buy_layout.addSpacing(12)
+
         self._buy_limit_btn = QPushButton("BUY LIMIT")
         self._buy_limit_btn.setMinimumSize(160, 45)
         self._buy_limit_btn.setStyleSheet(BUY_LIMIT_STYLE)
@@ -187,12 +198,8 @@ class OrderPanel(QWidget):
             if tick is None:
                 return
             spread = round(tick.ask - tick.bid, 5)
-            self._spread_label.setText(f"Spread: {spread}  |  BID: {tick.bid}  ASK: {tick.ask}")
-
-            # Auto-fill entry price if user hasn't manually edited it
-            if not self._price_input.hasFocus():
-                mid = round((tick.ask + tick.bid) / 2, 5)
-                self._price_input.setText(str(mid))
+            self._spread_label.setText(f"Spread: {spread}")
+            self._current_price_label.setText(f"BID: {tick.bid}  |  ASK: {tick.ask}")
         except Exception:
             pass
 
