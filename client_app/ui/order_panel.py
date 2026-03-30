@@ -37,7 +37,7 @@ class OrderPanel(QWidget):
         self._tick_future: Future | None = None
         self._order_future: Future | None = None
         self._setup_ui()
-        self._start_price_sync()
+        # self._start_price_sync()
 
     def _setup_ui(self):
         main_layout = QHBoxLayout(self)
@@ -271,6 +271,12 @@ class OrderPanel(QWidget):
         ]:
             btn.setEnabled(True)
             btn.setText(text)
+
+    def update_tick(self, tick: dict):
+        """Update price display from sync result."""
+        spread = round(tick["ask"] - tick["bid"], 5)
+        self._spread_label.setText(f"Spread: {spread}")
+        self._current_price_label.setText(f"BID: {tick['bid']}  |  ASK: {tick['ask']}")
 
     def get_sl_offset(self) -> float:
         text = self._sl_offset_input.text().strip()

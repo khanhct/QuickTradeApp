@@ -2,6 +2,8 @@ import logging
 from concurrent.futures import Future
 from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QSplitter
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QIcon
+from pathlib import Path
 
 from client_app.api_client import ApiClient
 from client_app.worker import ApiWorker
@@ -19,6 +21,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("MT5 Quick Trading (Remote)")
         self.setMinimumSize(900, 600)
         self.resize(1000, 700)
+        icon_path = Path(__file__).parent.parent.parent / "assets" / "client_icon.ico"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
 
         self._api = api
         self._worker = ApiWorker()
@@ -69,10 +74,13 @@ class MainWindow(QMainWindow):
         if self._sync_future is not None and not self._sync_future.done():
             return
 
+        symbol = self._order_panel._symbol_combo.currentText().strip()
+
         def _fetch():
             positions = self._api.get_positions()
             orders = self._api.get_orders()
-            return positions, orders
+            tick = self._api.get_tick(symbol) if symbol else None
+            return positions, orders, tick
 
         self._sync_future = self._worker.submit(_fetch)
         self._poll_timer.start()
@@ -85,9 +93,11 @@ class MainWindow(QMainWindow):
         self._sync_future = None
 
         try:
-            positions, orders = future.result()
+            positions, orders, tick = future.result()
             self._positions_panel.update_positions(positions)
             self._positions_panel.update_orders(orders)
+            if tick:
+                self._order_panel.update_tick(tick)
             self._status_bar.set_sync_time()
             self._status_bar.set_connected(True)
             self._status_bar.set_position_count(len(positions) + len(orders))

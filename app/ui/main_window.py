@@ -4,6 +4,8 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QSplitter, QMessageBox,
 )
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QIcon
+from pathlib import Path
 from app.mt5.worker import MT5Worker
 from app.mt5 import connection
 from app.core.sync import SyncManager
@@ -20,6 +22,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("MT5 Quick Trading")
         self.setMinimumSize(900, 600)
         self.resize(1000, 700)
+        icon_path = Path(__file__).parent.parent.parent / "assets" / "app_icon.ico"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
 
         # Create MT5 worker
         self._worker = MT5Worker()
