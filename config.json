@@ -3,5 +3,7 @@
     "default_sl_offset": 10.0,
     "default_lot_size": 0.1,
     "default_symbol": "XAUUSD",
-    "symbols": ["XAUUSD", "XPTUSD", "BTCUSD"]
+    "symbols": ["XAUUSD", "XPTUSD", "BTCUSD"],
+    "api_port": 8998,
+    "api_token": "changeme-secret-token"
 }
